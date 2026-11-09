@@ -160,7 +160,8 @@ function isWordMatch(wSpoken, wTarget) {
   for (let i = 0; i < len; i++) {
     if (wSpoken[i] === wTarget[i]) matchingChars++;
   }
-  return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.65;
+  // Tight tolerance to prevent false skipping
+  return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.85;
 }
 
 // --- INITIALIZATION AFTER DOM IS READY ---
@@ -407,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalWords = ayahWords.length;
     const isFinalAyahOfSurah = (state.currentAyahIndex === state.ayahs.length - 1);
 
-    // 2/3 Next page preview match
+    // 1. Next page auto-flip logic (2/3 of preview line)
     if (isFinalAyahOfSurah && state.nextSurahFirstAyahWords.length > 0) {
       let nextWordsMatched = 0;
       for (const spoken of spokenTokens) {
@@ -419,15 +420,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
       const flipCutoff = Math.max(1, Math.floor(state.nextSurahFirstAyahWords.length * 0.60));
-      if (nextWordsMatched >= flipCutoff || (state.lastMatchedWordIndex >= totalWords - 2 && nextWordsMatched >= 1)) {
+      if (nextWordsMatched >= flipCutoff || (state.lastMatchedWordIndex >= totalWords - 1 && nextWordsMatched >= 1)) {
         autoFlipToNextSurah();
         return;
       }
     }
 
-    const recentSpoken = spokenTokens.slice(-4);
+    // 2. Track words in active Ayah
+    const recentSpoken = spokenTokens.slice(-6);
     for (const spokenWord of recentSpoken) {
-      const searchLimit = Math.min(state.lastMatchedWordIndex + 3, totalWords);
+      // Strict Look-Ahead: Only looks at the current word or max 1 word ahead.
+      const searchLimit = Math.min(state.lastMatchedWordIndex + 2, totalWords);
 
       for (let w = state.lastMatchedWordIndex; w < searchLimit; w++) {
         if (isWordMatch(spokenWord, ayahWords[w])) {
@@ -436,6 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           state.lastMatchedWordIndex = w + 1;
 
+          // Auto-scroll midway
           if (w >= Math.floor(totalWords * 0.5)) {
             const ayahEl = document.getElementById(`ayah-${state.currentAyahIndex}`);
             if (ayahEl) scrollToActiveAyah(ayahEl);
@@ -445,8 +449,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    // 3. Auto-advance logic
     if (isFinalAyahOfSurah) {
-      if (state.lastMatchedWordIndex >= Math.max(1, totalWords - 2)) {
+      if (state.lastMatchedWordIndex >= Math.max(1, totalWords - 1)) {
         autoFlipToNextSurah();
       }
     } else {
