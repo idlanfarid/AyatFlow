@@ -12,6 +12,12 @@ const state = {
   lastMatchedWordIndex: 0,
   isTransitioning: false,
   lastProcessedTranscript: '',
+  
+  // Pagination State
+  chunkSize: 5, 
+  currentChunkIndex: 0,
+  previewWords: [],
+  nextSurahFirstAyahRaw: '',
   nextSurahFirstAyahWords: []
 };
 
@@ -164,7 +170,7 @@ function isWordMatch(wSpoken, wTarget) {
   return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.85;
 }
 
-// --- INITIALIZATION AFTER DOM IS READY ---
+// --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
   const surahSelect = document.getElementById('surah-select');
   const ayahSelect = document.getElementById('ayah-select');
@@ -220,8 +226,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${surahId}`);
       if (!res.ok) throw new Error('Failed to fetch verses');
       const data = await res.json();
+      
       state.ayahs = data.verses;
       state.currentSurahId = surahId;
+      state.currentChunkIndex = Math.floor((startAyah - 1) / state.chunkSize);
 
       if (surahSelect) surahSelect.value = surahId;
 
@@ -245,7 +253,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (pageIndicator) pageIndicator.innerText = `Surah ${sName} • ${state.ayahs.length} Verses`;
 
       preloadNextSurahPreview();
-      if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('Error loading Surah:', err);
       if (viewport) viewport.innerHTML = '<div class="text-center text-rose-400 py-12">Error loading Quran text. Check connection.</div>';
@@ -254,16 +261,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderAyahs() {
     if (!viewport) return;
-    viewport.innerHTML = state.ayahs.map((ayah, aIdx) => {
+    
+    // Pagination: Only render 5 verses for the current chunk
+    const startIdx = state.currentChunkIndex * state.chunkSize;
+    const endIdx = startIdx + state.chunkSize;
+    const chunk = state.ayahs.slice(startIdx, endIdx);
+
+    viewport.innerHTML = chunk.map((ayah, localIdx) => {
+      const absoluteIdx = startIdx + localIdx;
       const rawWords = ayah.text_uthmani.split(' ');
+      
       const renderedWords = rawWords.map((w, wIdx) => 
-        `<span class="ayah-word inline-block mx-[2px] transition-colors duration-150" id="word-${aIdx}-${wIdx}">${w}</span>`
+        `<span class="ayah-word inline-block mx-[2px] transition-colors duration-150" id="word-${absoluteIdx}-${wIdx}">${w}</span>`
       ).join(' ');
 
       return `
-        <span id="ayah-${aIdx}" class="ayah-block inline transition-all duration-300 cursor-pointer" onclick="window.AyatFlowJump(${aIdx})">
+        <span id="ayah-${absoluteIdx}" class="ayah-block inline transition-all duration-300 cursor-pointer" onclick="window.AyatFlowJump(${absoluteIdx})">
           ${renderedWords}
-          <span class="ayah-number">﴿${aIdx + 1}﴾</span>
+          <span class="ayah-number">﴿${absoluteIdx + 1}﴾</span>
         </span>
       `;
     }).join(' ');
@@ -271,17 +286,13 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTypography();
   }
 
-  // AMENDED: Tracks the exact active WORD instead of the verse block for long verses
   function scrollToActiveElement(el) {
     if (!el || !container) return;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    
-    // Trigger scroll when the word moves past the middle of the screen
     const triggerThreshold = containerRect.top + (containerRect.height * 0.50);
 
     if (elRect.bottom > triggerThreshold || elRect.top < containerRect.top) {
-      // Scrolls so the active word sits 30% from the top
       const targetScrollTop = container.scrollTop + (elRect.top - containerRect.top) - (containerRect.height * 0.3);
       container.scrollTo({
         top: Math.max(0, targetScrollTop),
@@ -292,36 +303,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setActiveAyah(index, manualJump = false) {
     if (index < 0 || index >= state.ayahs.length) return;
+    
+    // Check if we need to load the next/previous 5-verse chunk
+    const requiredChunk = Math.floor(index / state.chunkSize);
+    if (requiredChunk !== state.currentChunkIndex) {
+      state.currentChunkIndex = requiredChunk;
+      renderAyahs();
+      if (container) container.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     state.currentAyahIndex = index;
     state.lastMatchedWordIndex = 0;
     if (ayahSelect) ayahSelect.value = index + 1;
 
-    document.querySelectorAll('.ayah-block').forEach((el, i) => {
-      if (i === index) {
+    document.querySelectorAll('.ayah-block').forEach((el) => {
+      const elIdx = parseInt(el.id.split('-')[1]);
+      if (elIdx === index) {
         el.classList.add('active-ayah');
-        // Initial scroll to the beginning of the newly active ayah
         scrollToActiveElement(el.querySelector('.ayah-word')); 
       } else {
         el.classList.remove('active-ayah');
       }
     });
 
-    checkPageBoundaryPreview();
+    updatePreviewDrawer();
   }
 
   window.AyatFlowJump = (idx) => setActiveAyah(idx, true);
 
   async function preloadNextSurahPreview() {
     const nextSurahId = state.currentSurahId + 1;
-    state.nextSurahFirstAyahWords = [];
     if (nextSurahId <= 114) {
       try {
         const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${nextSurahId}`);
         const data = await res.json();
-        if (data.verses && data.verses.length > 0 && nextPageFirstAyah) {
-          const firstAyahText = data.verses[0].text_uthmani;
-          nextPageFirstAyah.innerText = firstAyahText + ' ﴿1﴾';
-          state.nextSurahFirstAyahWords = cleanArabic(firstAyahText).split(' ').filter(Boolean);
+        if (data.verses && data.verses.length > 0) {
+          state.nextSurahFirstAyahRaw = data.verses[0].text_uthmani;
+          state.nextSurahFirstAyahWords = cleanArabic(state.nextSurahFirstAyahRaw).split(' ').filter(Boolean);
         }
       } catch (e) {
         console.warn(e);
@@ -329,10 +347,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function checkPageBoundaryPreview() {
+  function updatePreviewDrawer() {
     if (!nextPagePreview) return;
-    if (state.currentAyahIndex >= state.ayahs.length - 2) {
+    
+    const isFinalAyahOfSurah = (state.currentAyahIndex === state.ayahs.length - 1);
+    const isFinalAyahOfChunk = (state.currentAyahIndex === ((state.currentChunkIndex + 1) * state.chunkSize) - 1);
+
+    state.previewWords = [];
+
+    if (isFinalAyahOfSurah && state.nextSurahFirstAyahWords.length > 0) {
+      nextPageFirstAyah.innerText = state.nextSurahFirstAyahRaw + ' ﴿1﴾';
+      state.previewWords = state.nextSurahFirstAyahWords;
       nextPagePreview.classList.remove('hidden');
+    } else if (isFinalAyahOfChunk && !isFinalAyahOfSurah) {
+      const nextAyah = state.ayahs[state.currentAyahIndex + 1];
+      if (nextAyah) {
+        nextPageFirstAyah.innerText = nextAyah.text_uthmani + ` ﴿${state.currentAyahIndex + 2}﴾`;
+        state.previewWords = cleanArabic(nextAyah.text_uthmani).split(' ').filter(Boolean);
+        nextPagePreview.classList.remove('hidden');
+      }
     } else {
       nextPagePreview.classList.add('hidden');
     }
@@ -355,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function initSpeechEngine() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      if (recognizedSpeechLabel) recognizedSpeechLabel.innerText = 'Voice detection not supported on this browser. Use Chrome or Safari.';
+      if (recognizedSpeechLabel) recognizedSpeechLabel.innerText = 'Voice detection not supported on this browser.';
       return;
     }
 
@@ -417,25 +450,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const ayahClean = cleanArabic(currentAyah.text_uthmani);
     const ayahWords = ayahClean.split(' ').filter(Boolean);
     const totalWords = ayahWords.length;
+    
     const isFinalAyahOfSurah = (state.currentAyahIndex === state.ayahs.length - 1);
+    const isFinalAyahOfChunk = (state.currentAyahIndex === ((state.currentChunkIndex + 1) * state.chunkSize) - 1);
+    const isBoundary = isFinalAyahOfSurah || isFinalAyahOfChunk;
 
-    if (isFinalAyahOfSurah && state.nextSurahFirstAyahWords.length > 0) {
+    // 1. 2/3 Preview Auto-Flip Match
+    if (isBoundary && state.previewWords.length > 0) {
       let nextWordsMatched = 0;
       for (const spoken of spokenTokens) {
-        for (let nw = 0; nw < state.nextSurahFirstAyahWords.length; nw++) {
-          if (isWordMatch(spoken, state.nextSurahFirstAyahWords[nw])) {
+        for (let nw = 0; nw < state.previewWords.length; nw++) {
+          if (isWordMatch(spoken, state.previewWords[nw])) {
             nextWordsMatched++;
             break;
           }
         }
       }
-      const flipCutoff = Math.max(1, Math.floor(state.nextSurahFirstAyahWords.length * 0.60));
+      const flipCutoff = Math.max(1, Math.floor(state.previewWords.length * 0.60));
       if (nextWordsMatched >= flipCutoff) {
-        autoFlipToNextSurah();
+        if (isFinalAyahOfSurah) {
+          autoFlipToNextSurah();
+        } else {
+          setActiveAyah(state.currentAyahIndex + 1);
+        }
         return;
       }
     }
 
+    // 2. Track words in active Ayah
     const recentSpoken = spokenTokens.slice(-6);
     for (const spokenWord of recentSpoken) {
       const searchLimit = Math.min(state.lastMatchedWordIndex + 2, totalWords);
@@ -445,7 +487,6 @@ document.addEventListener('DOMContentLoaded', () => {
           const wordEl = document.getElementById(`word-${state.currentAyahIndex}-${w}`);
           if (wordEl) {
             wordEl.classList.add('active-word');
-            // Scrolls precisely to the active word
             scrollToActiveElement(wordEl);
           }
           state.lastMatchedWordIndex = w + 1;
@@ -454,13 +495,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // AMENDED: Strict waiting logic for end of Ayah
-    if (isFinalAyahOfSurah) {
-      // Must hit the absolute last word before flipping
+    // 3. Strict waiting logic for end of Ayah
+    if (isBoundary) {
       if (state.lastMatchedWordIndex >= totalWords) {
         // Wait 1.5 seconds so Imam can finish the breath/Madd before screen cuts away
         setTimeout(() => {
-          if (!state.isTransitioning) autoFlipToNextSurah();
+          if (!state.isTransitioning) {
+            if (isFinalAyahOfSurah) autoFlipToNextSurah();
+            else setActiveAyah(state.currentAyahIndex + 1);
+          }
         }, 1500); 
       }
     } else {
@@ -531,7 +574,6 @@ document.addEventListener('DOMContentLoaded', () => {
     micToggleBtn.addEventListener('click', toggleListening);
   }
   
-  // Font Size Listeners
   if (btnFontInc) {
     btnFontInc.addEventListener('click', () => {
       if (state.fontSize < 64) {
@@ -548,8 +590,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-
-  // Line Spacing Listeners
   if (btnSpaceInc) {
     btnSpaceInc.addEventListener('click', () => {
       if (state.lineHeight < 5.0) {
