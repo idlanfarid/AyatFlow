@@ -1,8 +1,3 @@
-Here is the complete, full `app.js` code with all fixes applied (including the Surah/Ayah dropdown sync, sequential word matching, 2/3 next page auto-flip, and Madd phonetic tolerance).
-
-You can select all, copy, and replace the entire content of `app.js`:
-
-```javascript
 // --- STATE MANAGEMENT ---
 const state = {
   surahs: [],
@@ -430,5 +425,3 @@ function toggleListening() {
 }
 
 initApp();
-
-```
