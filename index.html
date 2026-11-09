@@ -1,1 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AyatFlow | مصحف الإمام</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0f19">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="h-screen flex flex-col bg-slate-950 text-slate-100">
 
+  <!-- Header & Teleprompter Controls -->
+  <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 py-2.5 flex items-center justify-between shrink-0 z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg">
+        📖
+      </div>
+      <div>
+        <h1 class="font-bold text-sm tracking-wide text-white">AyatFlow <span class="text-xs text-emerald-400 font-normal">مصحف الإمام</span></h1>
+        <p id="page-indicator" class="text-[11px] text-slate-400">Loading Quran...</p>
+      </div>
+    </div>
+
+    <!-- Quick Surah & Ayah Selector -->
+    <div class="flex items-center gap-2">
+      <select id="surah-select" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+        <!-- Populated via app.js -->
+      </select>
+      <select id="ayah-select" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-500">
+        <option value="1">Ayah 1</option>
+      </select>
+    </div>
+
+    <!-- Font Size & Settings Controls -->
+    <div class="flex items-center gap-2">
+      <div class="hidden sm:flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700 text-xs text-slate-300">
+        <span>Font:</span>
+        <button id="btn-font-dec" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">-</button>
+        <span id="font-size-label">34px</span>
+        <button id="btn-font-inc" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">+</button>
+      </div>
+      
+      <!-- Microphone Activation Button -->
+      <button id="mic-toggle-btn" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-medium text-xs px-3 py-1.5 rounded-lg transition-all shadow-lg shadow-emerald-900/30">
+        <span id="mic-icon">🎙️</span>
+        <span id="mic-label">Start Listening</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Live Recitation HUD & Audio Feedback -->
+  <div id="status-hud" class="bg-slate-900/60 border-b border-slate-800/50 px-4 py-1.5 flex items-center justify-between text-xs text-slate-400 shrink-0">
+    <div class="flex items-center gap-2">
+      <div id="audio-level-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600 transition-colors"></div>
+      <span id="recognized-speech" class="italic truncate max-w-[280px] sm:max-w-md">Microphone ready. Tap Start Listening to begin.</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="auto-flip-status" class="text-[11px] text-emerald-400/80 hidden sm:inline">Auto-Flip: Active</span>
+      <button id="btn-wake-lock" class="hover:text-emerald-400 text-[11px]">Keep Screen On: Off</button>
+    </div>
+  </div>
+
+  <!-- Teleprompter Quran Display Viewport -->
+  <main id="quran-container" class="flex-1 overflow-y-auto px-4 py-8 max-w-4xl mx-auto w-full">
+    <!-- Basmalah -->
+    <div id="bismillah" class="text-center mb-6 arabic-font text-amber-300/90 text-2xl hidden">
+      بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ
+    </div>
+
+    <!-- Active Surah Ayahs -->
+    <div id="mushaf-viewport" class="arabic-font text-slate-200 text-3xl transition-all">
+      <!-- Ayahs injected dynamically by app.js -->
+    </div>
+
+    <!-- Next Page Preview Drawer (Slides up at the end of the page) -->
+    <div id="next-page-preview" class="mt-12 p-4 rounded-xl border border-dashed border-emerald-500/30 bg-emerald-950/10 hidden">
+      <div class="text-[11px] text-emerald-400 tracking-wider mb-2 font-mono uppercase">Upcoming Next Page Preview (Auto-flips at 2/3):</div>
+      <div id="next-page-first-ayah" class="arabic-font text-slate-400 text-2xl"></div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
