@@ -10,7 +10,8 @@ const state = {
   wakeLock: null,
   lastMatchedWordIndex: 0,
   isTransitioning: false,
-  lastProcessedTranscript: ''
+  lastProcessedTranscript: '',
+  nextSurahFirstAyahWords: []
 };
 
 // --- DOM ELEMENTS ---
@@ -35,7 +36,7 @@ const btnWakeLock = document.getElementById('btn-wake-lock');
 function cleanArabic(str) {
   if (!str) return '';
   return str
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g, '') // Tashkeel & Tajweed marks
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g, '') // Tashkeel & Tajweed
     .replace(/[إأآاٱ]/g, 'ا')
     .replace(/[يىئ]/g, 'ي')
     .replace(/ة/g, 'ه')
@@ -49,19 +50,19 @@ function isWordMatch(wSpoken, wTarget) {
   if (!wSpoken || !wTarget) return false;
   if (wSpoken === wTarget) return true;
 
-  // Exact prefix/suffix check (handles Arabic 'al-', 'wa-', 'bi-' attachments)
+  // Handles prefixes like Al-, Wa-, Fa-, Bi-
   if (wSpoken.length >= 3 && wTarget.length >= 3) {
     if (wTarget.endsWith(wSpoken) || wSpoken.endsWith(wTarget)) return true;
     if (wTarget.startsWith(wSpoken) || wSpoken.startsWith(wTarget)) return true;
   }
 
-  // Phonetic tolerance for stretched vowels (Madd)
+  // Phonetic Madd overlap
   let matchingChars = 0;
   const len = Math.min(wSpoken.length, wTarget.length);
   for (let i = 0; i < len; i++) {
     if (wSpoken[i] === wTarget[i]) matchingChars++;
   }
-  return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.75;
+  return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.65;
 }
 
 // --- INIT APP ---
@@ -76,4 +77,42 @@ async function fetchSurahList() {
   try {
     const res = await fetch('https://api.quran.com/api/v4/chapters?language=en');
     const data = await res.json();
-    state.surahs
+    state.surahs = data.chapters;
+
+    surahSelect.innerHTML = state.surahs.map(s => 
+      `<option value="${s.id}">${s.id}. ${s.name_simple} (${s.name_arabic})</option>`
+    ).join('');
+  } catch (err) {
+    console.error('Failed to fetch chapters:', err);
+    pageIndicator.innerText = 'Offline mode or API error.';
+  }
+}
+
+async function loadSurah(surahId, startAyah = 1) {
+  state.isTransitioning = false;
+  pageIndicator.innerText = `Loading Surah ${surahId}...`;
+  viewport.innerHTML = '<div class="text-center text-slate-500 py-12">Loading verses...</div>';
+  
+  try {
+    const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${surahId}`);
+    const data = await res.json();
+    state.ayahs = data.verses;
+    state.currentSurahId = surahId;
+
+    if (surahId !== 1 && surahId !== 9) {
+      bismillahBox.classList.remove('hidden');
+    } else {
+      bismillahBox.classList.add('hidden');
+    }
+
+    ayahSelect.innerHTML = state.ayahs.map((_, i) => `<option value="${i + 1}">Ayah ${i + 1}</option>`).join('');
+    ayahSelect.value = startAyah;
+
+    renderAyahs();
+    setActiveAyah(startAyah - 1, false);
+    pageIndicator.innerText = `Surah ${state.surahs[surahId - 1]?.name_simple || surahId} • ${state.ayahs.length} Verses`;
+    
+    // Always preload the next surah preview
+    preloadNextSurahPreview();
+    container.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch
