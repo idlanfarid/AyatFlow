@@ -1,1 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Inter:wght@400;500;600;700&display=swap');
 
+:root {
+  --font-arabic: 'Amiri Quran', serif;
+  --bg-color: #0b0f19;
+  --panel-bg: rgba(17, 24, 39, 0.85);
+  --accent-gold: #fbbf24;
+  --accent-emerald: #10b981;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: #f3f4f6;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.arabic-font {
+  font-family: var(--font-arabic);
+  direction: rtl;
+  text-align: justify;
+  text-align-last: center;
+  line-height: 2.3;
+  word-spacing: 4px;
+}
+
+/* Smooth teleprompter scrolling */
+#quran-container {
+  scroll-behavior: smooth;
+}
+
+/* Word & Ayah highlighting */
+.active-ayah {
+  background: rgba(16, 185, 129, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.15);
+  transition: all 0.3s ease-in-out;
+}
+
+.active-word {
+  color: var(--accent-gold) !important;
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
+  transform: scale(1.04);
+  display: inline-block;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+/* Ayah end ornament symbol */
+.ayah-number {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.65em;
+  color: var(--accent-emerald);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 8px;
+  vertical-align: middle;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
