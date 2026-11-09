@@ -1,1 +1,17 @@
-
+{
+  "name": "AyatFlow - Smart Quran Teleprompter",
+  "short_name": "AyatFlow",
+  "description": "Hands-free voice-tracking Quran teleprompter for Imams and reciters",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "icons": [
+    {
+      "src": "https://api.iconify.design/lucide:book-open.svg?color=%2310b981",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
