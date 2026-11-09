@@ -26,15 +26,24 @@
     <!-- Quick Surah & Ayah Selector -->
     <div class="flex items-center gap-2">
       <select id="surah-select" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
-        <!-- Populated via app.js -->
       </select>
       <select id="ayah-select" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-500">
         <option value="1">Ayah 1</option>
       </select>
     </div>
 
-    <!-- Font Size & Settings Controls -->
+    <!-- Typography & Settings Controls -->
     <div class="flex items-center gap-2">
+      
+      <!-- NEW: Line Spacing Control -->
+      <div class="hidden md:flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700 text-xs text-slate-300">
+        <span>Space:</span>
+        <button id="btn-space-dec" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">-</button>
+        <span id="space-size-label">2.8</span>
+        <button id="btn-space-inc" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">+</button>
+      </div>
+
+      <!-- Font Size Control -->
       <div class="hidden sm:flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700 text-xs text-slate-300">
         <span>Font:</span>
         <button id="btn-font-dec" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">-</button>
@@ -42,7 +51,7 @@
         <button id="btn-font-inc" class="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600">+</button>
       </div>
       
-      <!-- Microphone Activation Button -->
+      <!-- Microphone Button -->
       <button id="mic-toggle-btn" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-medium text-xs px-3 py-1.5 rounded-lg transition-all shadow-lg shadow-emerald-900/30">
         <span id="mic-icon">🎙️</span>
         <span id="mic-label">Start Listening</span>
@@ -50,7 +59,7 @@
     </div>
   </header>
 
-  <!-- Live Recitation HUD & Audio Feedback -->
+  <!-- Live Recitation HUD -->
   <div id="status-hud" class="bg-slate-900/60 border-b border-slate-800/50 px-4 py-1.5 flex items-center justify-between text-xs text-slate-400 shrink-0">
     <div class="flex items-center gap-2">
       <div id="audio-level-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600 transition-colors"></div>
@@ -62,19 +71,16 @@
     </div>
   </div>
 
-  <!-- Teleprompter Quran Display Viewport -->
+  <!-- Teleprompter Display -->
   <main id="quran-container" class="flex-1 overflow-y-auto px-4 py-8 max-w-4xl mx-auto w-full">
-    <!-- Basmalah -->
     <div id="bismillah" class="text-center mb-6 arabic-font text-amber-300/90 text-2xl hidden">
       بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ
     </div>
 
-    <!-- Active Surah Ayahs -->
     <div id="mushaf-viewport" class="arabic-font text-slate-200 text-3xl transition-all">
-      <!-- Ayahs injected dynamically by app.js -->
     </div>
 
-    <!-- Next Page Preview Drawer (Slides up at the end of the page) -->
+    <!-- Next Page Preview -->
     <div id="next-page-preview" class="mt-12 p-4 rounded-xl border border-dashed border-emerald-500/30 bg-emerald-950/10 hidden">
       <div class="text-[11px] text-emerald-400 tracking-wider mb-2 font-mono uppercase">Upcoming Next Page Preview (Auto-flips at 2/3):</div>
       <div id="next-page-first-ayah" class="arabic-font text-slate-400 text-2xl"></div>
