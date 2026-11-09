@@ -26,8 +26,8 @@ body {
   direction: rtl;
   text-align: justify;
   text-align-last: center;
-  line-height: 2.3;
-  word-spacing: 4px;
+  word-spacing: 12px;
+  /* Line height is now controlled dynamically by JS based on user preference */
 }
 
 /* Smooth teleprompter scrolling */
