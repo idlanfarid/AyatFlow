@@ -5,6 +5,7 @@ const state = {
   currentAyahIndex: 0,
   ayahs: [],
   fontSize: 34,
+  lineHeight: 2.8,
   isListening: false,
   recognition: null,
   wakeLock: null,
@@ -14,7 +15,7 @@ const state = {
   nextSurahFirstAyahWords: []
 };
 
-// Fallback Surahs list to ensure dropdowns always populate instantly
+// Fallback Surahs list
 const FALLBACK_SURAHS = [
   { id: 1, name_simple: "Al-Fatihah", name_arabic: "الفاتحة" },
   { id: 2, name_simple: "Al-Baqarah", name_arabic: "البقرة" },
@@ -160,7 +161,6 @@ function isWordMatch(wSpoken, wTarget) {
   for (let i = 0; i < len; i++) {
     if (wSpoken[i] === wTarget[i]) matchingChars++;
   }
-  // Tight tolerance to prevent false skipping
   return (matchingChars / Math.max(wSpoken.length, wTarget.length)) >= 0.85;
 }
 
@@ -178,9 +178,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageIndicator = document.getElementById('page-indicator');
   const nextPagePreview = document.getElementById('next-page-preview');
   const nextPageFirstAyah = document.getElementById('next-page-first-ayah');
+  
   const btnFontInc = document.getElementById('btn-font-inc');
   const btnFontDec = document.getElementById('btn-font-dec');
   const fontSizeLabel = document.getElementById('font-size-label');
+  
+  const btnSpaceInc = document.getElementById('btn-space-inc');
+  const btnSpaceDec = document.getElementById('btn-space-dec');
+  const spaceSizeLabel = document.getElementById('space-size-label');
+
   const btnWakeLock = document.getElementById('btn-wake-lock');
 
   function populateSurahDropdown(list) {
@@ -255,24 +261,28 @@ document.addEventListener('DOMContentLoaded', () => {
       ).join(' ');
 
       return `
-        <span id="ayah-${aIdx}" class="ayah-block inline p-1 rounded-xl transition-all duration-300 cursor-pointer" onclick="window.AyatFlowJump(${aIdx})">
+        <span id="ayah-${aIdx}" class="ayah-block inline transition-all duration-300 cursor-pointer" onclick="window.AyatFlowJump(${aIdx})">
           ${renderedWords}
           <span class="ayah-number">﴿${aIdx + 1}﴾</span>
         </span>
       `;
     }).join(' ');
 
-    updateFontSize();
+    updateTypography();
   }
 
-  function scrollToActiveAyah(el) {
+  // AMENDED: Tracks the exact active WORD instead of the verse block for long verses
+  function scrollToActiveElement(el) {
     if (!el || !container) return;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    const triggerThreshold = containerRect.top + (containerRect.height * 0.60);
+    
+    // Trigger scroll when the word moves past the middle of the screen
+    const triggerThreshold = containerRect.top + (containerRect.height * 0.50);
 
     if (elRect.bottom > triggerThreshold || elRect.top < containerRect.top) {
-      const targetScrollTop = container.scrollTop + (elRect.top - containerRect.top) - (containerRect.height * 0.25);
+      // Scrolls so the active word sits 30% from the top
+      const targetScrollTop = container.scrollTop + (elRect.top - containerRect.top) - (containerRect.height * 0.3);
       container.scrollTo({
         top: Math.max(0, targetScrollTop),
         behavior: 'smooth'
@@ -289,7 +299,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.ayah-block').forEach((el, i) => {
       if (i === index) {
         el.classList.add('active-ayah');
-        scrollToActiveAyah(el);
+        // Initial scroll to the beginning of the newly active ayah
+        scrollToActiveElement(el.querySelector('.ayah-word')); 
       } else {
         el.classList.remove('active-ayah');
       }
@@ -408,7 +419,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalWords = ayahWords.length;
     const isFinalAyahOfSurah = (state.currentAyahIndex === state.ayahs.length - 1);
 
-    // 1. Next page auto-flip logic (2/3 of preview line)
     if (isFinalAyahOfSurah && state.nextSurahFirstAyahWords.length > 0) {
       let nextWordsMatched = 0;
       for (const spoken of spokenTokens) {
@@ -420,54 +430,57 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
       const flipCutoff = Math.max(1, Math.floor(state.nextSurahFirstAyahWords.length * 0.60));
-      if (nextWordsMatched >= flipCutoff || (state.lastMatchedWordIndex >= totalWords - 1 && nextWordsMatched >= 1)) {
+      if (nextWordsMatched >= flipCutoff) {
         autoFlipToNextSurah();
         return;
       }
     }
 
-    // 2. Track words in active Ayah
     const recentSpoken = spokenTokens.slice(-6);
     for (const spokenWord of recentSpoken) {
-      // Strict Look-Ahead: Only looks at the current word or max 1 word ahead.
       const searchLimit = Math.min(state.lastMatchedWordIndex + 2, totalWords);
 
       for (let w = state.lastMatchedWordIndex; w < searchLimit; w++) {
         if (isWordMatch(spokenWord, ayahWords[w])) {
           const wordEl = document.getElementById(`word-${state.currentAyahIndex}-${w}`);
-          if (wordEl) wordEl.classList.add('active-word');
-
-          state.lastMatchedWordIndex = w + 1;
-
-          // Auto-scroll midway
-          if (w >= Math.floor(totalWords * 0.5)) {
-            const ayahEl = document.getElementById(`ayah-${state.currentAyahIndex}`);
-            if (ayahEl) scrollToActiveAyah(ayahEl);
+          if (wordEl) {
+            wordEl.classList.add('active-word');
+            // Scrolls precisely to the active word
+            scrollToActiveElement(wordEl);
           }
+          state.lastMatchedWordIndex = w + 1;
           break;
         }
       }
     }
 
-    // 3. Auto-advance logic
+    // AMENDED: Strict waiting logic for end of Ayah
     if (isFinalAyahOfSurah) {
-      if (state.lastMatchedWordIndex >= Math.max(1, totalWords - 1)) {
-        autoFlipToNextSurah();
+      // Must hit the absolute last word before flipping
+      if (state.lastMatchedWordIndex >= totalWords) {
+        // Wait 1.5 seconds so Imam can finish the breath/Madd before screen cuts away
+        setTimeout(() => {
+          if (!state.isTransitioning) autoFlipToNextSurah();
+        }, 1500); 
       }
     } else {
-      if (state.lastMatchedWordIndex >= Math.max(1, totalWords - 1)) {
+      if (state.lastMatchedWordIndex >= totalWords) {
         setTimeout(() => {
           if (!state.isTransitioning && state.currentAyahIndex < state.ayahs.length - 1) {
             setActiveAyah(state.currentAyahIndex + 1);
           }
-        }, 350);
+        }, 400);
       }
     }
   }
 
-  function updateFontSize() {
-    if (viewport) viewport.style.fontSize = `${state.fontSize}px`;
+  function updateTypography() {
+    if (viewport) {
+      viewport.style.fontSize = `${state.fontSize}px`;
+      viewport.style.lineHeight = state.lineHeight;
+    }
     if (fontSizeLabel) fontSizeLabel.innerText = `${state.fontSize}px`;
+    if (spaceSizeLabel) spaceSizeLabel.innerText = state.lineHeight.toFixed(1);
   }
 
   function stopListeningUI() {
@@ -517,11 +530,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (micToggleBtn) {
     micToggleBtn.addEventListener('click', toggleListening);
   }
+  
+  // Font Size Listeners
   if (btnFontInc) {
     btnFontInc.addEventListener('click', () => {
       if (state.fontSize < 64) {
         state.fontSize += 2;
-        updateFontSize();
+        updateTypography();
       }
     });
   }
@@ -529,7 +544,25 @@ document.addEventListener('DOMContentLoaded', () => {
     btnFontDec.addEventListener('click', () => {
       if (state.fontSize > 20) {
         state.fontSize -= 2;
-        updateFontSize();
+        updateTypography();
+      }
+    });
+  }
+
+  // Line Spacing Listeners
+  if (btnSpaceInc) {
+    btnSpaceInc.addEventListener('click', () => {
+      if (state.lineHeight < 5.0) {
+        state.lineHeight += 0.2;
+        updateTypography();
+      }
+    });
+  }
+  if (btnSpaceDec) {
+    btnSpaceDec.addEventListener('click', () => {
+      if (state.lineHeight > 1.8) {
+        state.lineHeight -= 0.2;
+        updateTypography();
       }
     });
   }
