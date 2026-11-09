@@ -7,15 +7,15 @@ const state = {
   fontSize: 34,
   isListening: false,
   recognition: null,
-  audioContext: null,
-  analyser: null,
-  wakeLock: null
+  wakeLock: null,
+  lastMatchedWordIndex: 0
 };
 
 // --- DOM ELEMENTS ---
 const surahSelect = document.getElementById('surah-select');
 const ayahSelect = document.getElementById('ayah-select');
 const viewport = document.getElementById('mushaf-viewport');
+const container = document.getElementById('quran-container');
 const bismillahBox = document.getElementById('bismillah');
 const micToggleBtn = document.getElementById('mic-toggle-btn');
 const micLabel = document.getElementById('mic-label');
@@ -29,29 +29,42 @@ const btnFontDec = document.getElementById('btn-font-dec');
 const fontSizeLabel = document.getElementById('font-size-label');
 const btnWakeLock = document.getElementById('btn-wake-lock');
 
-// --- ARABIC NORMALIZATION (Strips Tashkeel & Unifies Letters for Speech Matching) ---
-function normalizeArabic(text) {
-  if (!text) return '';
-  return text
-    // Remove Tashkeel (vowels: Fatha, Damma, Kasra, Sukun, Shaddah, Tanween)
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    // Normalize Alef variations (أ, إ, آ -> ا)
-    .replace(/[إأآا]/g, 'ا')
-    // Normalize Taa Marbuta (ة -> ه)
-    .replace(/ة/g, 'ه')
-    // Normalize Yaa (ى -> ي)
-    .replace(/ى/g, 'ي')
-    // Remove Quranic punctuation and pause markers
-    .replace(/[\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g, '')
+// --- AGGRESSIVE ARABIC NORMALIZATION ---
+// Strips all vowels, madd markers, alef variations, and converts into pure root phonetic skeleton
+function cleanArabic(str) {
+  if (!str) return '';
+  return str
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g, '') // Tashkeel & Quranic signs
+    .replace(/[إأآاٱ]/g, 'ا') // Normalize Alef
+    .replace(/[يىئ]/g, 'ي')  // Normalize Yaa
+    .replace(/ة/g, 'ه')       // Normalize Taa Marbuta
+    .replace(/ؤ/g, 'و')       // Normalize Waw with Hamza
+    .replace(/[^\u0621-\u064A\s]/g, '') // Keep Arabic letters only
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
-// --- INITIALIZE & FETCH QURAN DATA ---
+// Levenshtein similarity for pronunciation tolerance
+function isWordSimilar(w1, w2) {
+  if (!w1 || !w2) return false;
+  if (w1 === w2) return true;
+  if (w1.includes(w2) || w2.includes(w1)) return true;
+  
+  // Basic character overlap check for long recitations
+  let matches = 0;
+  const minLen = Math.min(w1.length, w2.length);
+  for (let i = 0; i < minLen; i++) {
+    if (w1[i] === w2[i]) matches++;
+  }
+  return (matches / minLen) >= 0.65;
+}
+
+// --- INIT APP ---
 async function initApp() {
   await fetchSurahList();
-  loadSurah(state.currentSurahId);
+  await loadSurah(state.currentSurahId);
   setupEventListeners();
-  setupSpeechEngine();
+  initSpeechEngine();
 }
 
 async function fetchSurahList() {
@@ -65,51 +78,49 @@ async function fetchSurahList() {
     ).join('');
   } catch (err) {
     console.error('Failed to fetch chapters:', err);
-    pageIndicator.innerText = 'Offline mode or failed to connect.';
+    pageIndicator.innerText = 'Offline mode or API error.';
   }
 }
 
 async function loadSurah(surahId, startAyah = 1) {
-  pageIndicator.innerText = `Fetching Surah ${surahId}...`;
+  pageIndicator.innerText = `Loading Surah ${surahId}...`;
   viewport.innerHTML = '<div class="text-center text-slate-500 py-12">Loading verses...</div>';
   
   try {
-    // Fetch Uthmani text with verse keys
     const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${surahId}`);
     const data = await res.json();
     state.ayahs = data.verses;
+    state.currentSurahId = surahId;
 
-    // Show/hide Bismillah (exclude Surah 1 & 9)
     if (surahId !== 1 && surahId !== 9) {
       bismillahBox.classList.remove('hidden');
     } else {
       bismillahBox.classList.add('hidden');
     }
 
-    // Populate Ayah selector
     ayahSelect.innerHTML = state.ayahs.map((_, i) => `<option value="${i + 1}">Ayah ${i + 1}</option>`).join('');
     ayahSelect.value = startAyah;
 
     renderAyahs();
-    setActiveAyah(startAyah - 1);
+    setActiveAyah(startAyah - 1, false);
     pageIndicator.innerText = `Surah ${state.surahs[surahId - 1]?.name_simple || surahId} • ${state.ayahs.length} Verses`;
+    preloadNextSurahPreview();
   } catch (err) {
     console.error('Error loading Surah:', err);
-    viewport.innerHTML = '<div class="text-center text-red-400 py-12">Error loading Quran text.</div>';
   }
 }
 
 function renderAyahs() {
-  viewport.innerHTML = state.ayahs.map((ayah, index) => {
-    const words = ayah.text_uthmani.split(' ');
-    const renderedWords = words.map((w, wIdx) => 
-      `<span class="ayah-word" data-word-idx="${wIdx}">${w}</span>`
+  viewport.innerHTML = state.ayahs.map((ayah, aIdx) => {
+    const rawWords = ayah.text_uthmani.split(' ');
+    const renderedWords = rawWords.map((w, wIdx) => 
+      `<span class="ayah-word inline-block mx-[2px] transition-colors duration-150" id="word-${aIdx}-${wIdx}">${w}</span>`
     ).join(' ');
 
     return `
-      <span id="ayah-${index}" class="ayah-block inline px-1 py-1 transition-colors duration-200 cursor-pointer" onclick="jumpToAyah(${index})">
+      <span id="ayah-${aIdx}" class="ayah-block inline p-1 rounded-xl transition-all duration-300 cursor-pointer" onclick="setActiveAyah(${aIdx}, true)">
         ${renderedWords}
-        <span class="ayah-number">﴿${index + 1}﴾</span>
+        <span class="ayah-number">﴿${aIdx + 1}﴾</span>
       </span>
     `;
   }).join(' ');
@@ -117,15 +128,35 @@ function renderAyahs() {
   updateFontSize();
 }
 
-function setActiveAyah(index) {
+// --- SMOOTH 2/3 VIEWPORT SCROLLING LOGIC ---
+function scrollToActiveAyah(el) {
+  if (!el || !container) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+
+  // If the verse is positioned past 60% of the visible viewport, scroll it smoothly up
+  const triggerThreshold = containerRect.top + (containerRect.height * 0.60);
+
+  if (elRect.bottom > triggerThreshold || elRect.top < containerRect.top) {
+    const targetScrollTop = container.scrollTop + (elRect.top - containerRect.top) - (containerRect.height * 0.25);
+    container.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: 'smooth'
+    });
+  }
+}
+
+function setActiveAyah(index, manualJump = false) {
   if (index < 0 || index >= state.ayahs.length) return;
   state.currentAyahIndex = index;
+  state.lastMatchedWordIndex = 0;
   ayahSelect.value = index + 1;
 
   document.querySelectorAll('.ayah-block').forEach((el, i) => {
     if (i === index) {
       el.classList.add('active-ayah');
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      scrollToActiveAyah(el);
     } else {
       el.classList.remove('active-ayah');
     }
@@ -134,46 +165,48 @@ function setActiveAyah(index) {
   checkPageBoundaryPreview();
 }
 
-function jumpToAyah(index) {
-  setActiveAyah(index);
+// --- NEXT PAGE / NEXT SURAH PREVIEW & AUTO-FLIP ---
+async function preloadNextSurahPreview() {
+  const nextSurahId = state.currentSurahId + 1;
+  if (nextSurahId <= 114) {
+    try {
+      const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${nextSurahId}`);
+      const data = await res.json();
+      if (data.verses && data.verses.length > 0) {
+        nextPageFirstAyah.innerText = data.verses[0].text_uthmani + ' ﴿1﴾';
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  }
 }
 
-// --- NEXT PAGE / SURAH PREVIEW & 2/3 AUTO-FLIP ---
-async function checkPageBoundaryPreview() {
-  // If user reaches within 2 ayahs of the end of current Surah
+function checkPageBoundaryPreview() {
+  // Show preview drawer when reaching the final 2 ayahs
   if (state.currentAyahIndex >= state.ayahs.length - 2) {
-    const nextSurahId = state.currentSurahId + 1;
-    if (nextSurahId <= 114) {
-      try {
-        const res = await fetch(`https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${nextSurahId}`);
-        const data = await res.json();
-        if (data.verses && data.verses.length > 0) {
-          nextPageFirstAyah.innerText = data.verses[0].text_uthmani + ' ﴿1﴾';
-          nextPagePreview.classList.remove('hidden');
-        }
-      } catch (e) {
-        console.warn('Could not preload next surah', e);
-      }
-    }
+    nextPagePreview.classList.remove('hidden');
+    // Scroll container down slightly so preview is partially visible
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
   } else {
     nextPagePreview.classList.add('hidden');
   }
 }
 
-// Trigger flip when Imam recites ~2/3 of the transition target
-function triggerAutoFlipNext() {
+function autoFlipToNextSurah() {
   if (state.currentSurahId < 114) {
-    state.currentSurahId++;
-    surahSelect.value = state.currentSurahId;
-    loadSurah(state.currentSurahId, 1);
+    const nextId = state.currentSurahId + 1;
+    surahSelect.value = nextId;
+    loadSurah(nextId, 1);
+    recognizedSpeechLabel.innerText = `Flipped to next Surah!`;
   }
 }
 
-// --- VOICE RECOGNITION & FUZZY MATCHING ENGINE ---
-function setupSpeechEngine() {
+// --- CROSS-BROWSER SPEECH ENGINE (Safari, Samsung, Chrome) ---
+function initSpeechEngine() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
   if (!SpeechRecognition) {
-    recognizedSpeechLabel.innerText = 'Voice detection not supported on this browser (Use Chrome or Safari).';
+    recognizedSpeechLabel.innerText = 'Voice detection not supported on this browser. Try Chrome or Safari.';
     return;
   }
 
@@ -181,129 +214,93 @@ function setupSpeechEngine() {
   recognition.lang = 'ar-SA';
   recognition.continuous = true;
   recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
+
+  recognition.onstart = () => {
+    audioDot.classList.remove('bg-slate-600');
+    audioDot.classList.add('bg-emerald-400', 'shadow-[0_0_8px_#34d399]');
+  };
 
   recognition.onresult = (event) => {
-    let transcript = '';
+    let rawTranscript = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      transcript += event.results[i][0].transcript;
+      rawTranscript += ' ' + event.results[i][0].transcript;
     }
-    
-    recognizedSpeechLabel.innerText = `Heard: "${transcript}"`;
-    processRecitedSpeech(transcript);
+
+    const cleanInput = cleanArabic(rawTranscript);
+    if (!cleanInput) return;
+
+    recognizedSpeechLabel.innerText = `Heard: "${rawTranscript.trim()}"`;
+    matchRecitation(cleanInput);
   };
 
   recognition.onerror = (e) => {
-    if (e.error !== 'no-speech') {
-      console.warn('Speech recognition error:', e.error);
+    if (e.error === 'not-allowed') {
+      alert('Microphone permission denied. Please allow microphone access in your browser settings.');
+      stopListeningUI();
     }
   };
 
   recognition.onend = () => {
+    // Keep mic alive automatically
     if (state.isListening) {
-      try { recognition.start(); } catch (_) {}
+      try {
+        recognition.start();
+      } catch (_) {}
+    } else {
+      audioDot.classList.remove('bg-emerald-400', 'shadow-[0_0_8px_#34d399]');
+      audioDot.classList.add('bg-slate-600');
     }
   };
 
   state.recognition = recognition;
 }
 
-function processRecitedSpeech(spokenText) {
-  const cleanSpoken = normalizeArabic(spokenText);
-  if (!cleanSpoken) return;
-
+// --- RECITATION MATCHING & AUTO-ADVANCE ---
+function matchRecitation(spokenText) {
+  const spokenTokens = spokenText.split(' ').filter(Boolean);
   const currentAyah = state.ayahs[state.currentAyahIndex];
   if (!currentAyah) return;
 
-  const cleanCurrentAyah = normalizeArabic(currentAyah.text_uthmani);
-  const currentWords = cleanCurrentAyah.split(' ');
-  const spokenWords = cleanSpoken.split(' ');
-  const lastSpokenWord = spokenWords[spokenWords.length - 1];
+  const ayahClean = cleanArabic(currentAyah.text_uthmani);
+  const ayahWords = ayahClean.split(' ').filter(Boolean);
 
-  // Check matching word within a look-ahead window
-  let matchedIndex = -1;
-  for (let i = 0; i < currentWords.length; i++) {
-    if (currentWords[i].includes(lastSpokenWord) || lastSpokenWord.includes(currentWords[i])) {
-      matchedIndex = i;
-      break;
+  // Look ahead from last matched word
+  for (let s = 0; s < spokenTokens.length; s++) {
+    const spokenWord = spokenTokens[s];
+
+    for (let w = state.lastMatchedWordIndex; w < ayahWords.length; w++) {
+      if (isWordSimilar(spokenWord, ayahWords[w])) {
+        // Highlight active word
+        const wordEl = document.getElementById(`word-${state.currentAyahIndex}-${w}`);
+        if (wordEl) wordEl.classList.add('active-word');
+
+        state.lastMatchedWordIndex = w + 1;
+
+        // Auto-scroll as user reaches halfway through long verses
+        const ayahEl = document.getElementById(`ayah-${state.currentAyahIndex}`);
+        if (ayahEl) scrollToActiveAyah(ayahEl);
+        break;
+      }
     }
   }
 
-  // Highlight word if found
-  if (matchedIndex !== -1) {
-    const ayahEl = document.getElementById(`ayah-${state.currentAyahIndex}`);
-    if (ayahEl) {
-      const wordSpans = ayahEl.querySelectorAll('.ayah-word');
-      wordSpans.forEach((span, wIdx) => {
-        if (wIdx === matchedIndex) {
-          span.classList.add('active-word');
-        }
-      });
-    }
-
-    // Auto-advance verse if match reaches near end of Ayah
-    if (matchedIndex >= currentWords.length - 2) {
-      if (state.currentAyahIndex < state.ayahs.length - 1) {
-        setTimeout(() => setActiveAyah(state.currentAyahIndex + 1), 600);
-      } else {
-        // At the end of the Surah, trigger auto-flip
-        setTimeout(() => triggerAutoFlipNext(), 800);
-      }
+  // If user recited at least 70% of the words in the active Ayah, advance to next
+  const advanceThreshold = Math.max(1, Math.floor(ayahWords.length * 0.70));
+  if (state.lastMatchedWordIndex >= advanceThreshold) {
+    if (state.currentAyahIndex < state.ayahs.length - 1) {
+      setActiveAyah(state.currentAyahIndex + 1);
+    } else {
+      // Reached the end of the Surah (e.g., Al-Fatihah) -> Flip to next Surah!
+      autoFlipToNextSurah();
     }
   }
 }
 
-// --- HARDWARE AUDIO METER & NOISE SUPPRESSION ---
-async function startAudioMeter() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    });
-
-    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    state.analyser = state.audioContext.createAnalyser();
-    const source = state.audioContext.createMediaStreamSource(stream);
-    source.connect(state.analyser);
-    state.analyser.fftSize = 64;
-
-    const dataArray = new Uint8Array(state.analyser.frequencyBinCount);
-    function updateMeter() {
-      if (!state.isListening) return;
-      state.analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      let avg = sum / dataArray.length;
-
-      // Pulse green dot based on vocal presence
-      if (avg > 25) {
-        audioDot.classList.remove('bg-slate-600');
-        audioDot.classList.add('bg-emerald-400', 'shadow-[0_0_8px_#34d399]');
-      } else {
-        audioDot.classList.remove('bg-emerald-400', 'shadow-[0_0_8px_#34d399]');
-        audioDot.classList.add('bg-slate-600');
-      }
-      requestAnimationFrame(updateMeter);
-    }
-    updateMeter();
-  } catch (err) {
-    console.warn('Audio meter initialization skipped:', err);
-  }
-}
-
-// --- EVENT LISTENERS & UI HELPERS ---
+// --- CONTROLS & LISTENERS ---
 function setupEventListeners() {
-  surahSelect.addEventListener('change', (e) => {
-    state.currentSurahId = parseInt(e.target.value);
-    loadSurah(state.currentSurahId, 1);
-  });
-
-  ayahSelect.addEventListener('change', (e) => {
-    setActiveAyah(parseInt(e.target.value) - 1);
-  });
-
+  surahSelect.addEventListener('change', (e) => loadSurah(parseInt(e.target.value), 1));
+  ayahSelect.addEventListener('change', (e) => setActiveAyah(parseInt(e.target.value) - 1, true));
   micToggleBtn.addEventListener('click', toggleListening);
 
   btnFontInc.addEventListener('click', () => {
@@ -341,15 +338,22 @@ async function toggleWakeLock() {
         btnWakeLock.innerText = 'Keep Screen On: Off';
         btnWakeLock.classList.remove('text-emerald-400');
       }
-    } catch (e) {
-      console.warn('Wake Lock error:', e);
-    }
+    } catch (_) {}
   }
+}
+
+function stopListeningUI() {
+  state.isListening = false;
+  micLabel.innerText = 'Start Listening';
+  micToggleBtn.classList.remove('bg-rose-600', 'hover:bg-rose-500', 'animate-pulse');
+  micToggleBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+  audioDot.classList.remove('bg-emerald-400', 'shadow-[0_0_8px_#34d399]');
+  audioDot.classList.add('bg-slate-600');
 }
 
 function toggleListening() {
   if (!state.recognition) {
-    alert('Speech recognition is not available in this browser.');
+    alert('Speech recognition is not supported on this browser. Please use Google Chrome or Safari.');
     return;
   }
 
@@ -360,19 +364,14 @@ function toggleListening() {
       micLabel.innerText = 'Listening...';
       micToggleBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
       micToggleBtn.classList.add('bg-rose-600', 'hover:bg-rose-500', 'animate-pulse');
-      startAudioMeter();
       if (!state.wakeLock) toggleWakeLock();
     } catch (e) {
       console.error(e);
     }
   } else {
     state.recognition.stop();
-    state.isListening = false;
-    micLabel.innerText = 'Start Listening';
-    micToggleBtn.classList.remove('bg-rose-600', 'hover:bg-rose-500', 'animate-pulse');
-    micToggleBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+    stopListeningUI();
   }
 }
 
-// Start
 initApp();
